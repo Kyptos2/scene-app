@@ -1,0 +1,782 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum SubscriptionTier {
+  FREE
+  GOLD
+}
+
+enum FilmRole {
+  DIRECTOR
+  PRODUCER
+  DIRECTOR_OF_PHOTOGRAPHY
+  GAFFER
+  KEY_GRIP
+  SOUND_ENGINEER
+  EDITOR
+  FIRST_AC
+  SECOND_AC
+  COLORIST
+  PRODUCTION_DESIGNER
+  COSTUME_DESIGNER
+  SCREENWRITER
+  ACTOR
+  PRODUCTION_ASSISTANT
+  COMPOSER
+  VFX_ARTIST
+  LINE_PRODUCER
+  CASTING_DIRECTOR
+  OTHER
+}
+
+enum ExperienceLevel {
+  STUDENT
+  INDIE
+  PROFESSIONAL
+  VETERAN
+}
+
+enum ProjectStatus {
+  PRE_PRODUCTION
+  FILMING
+  POST_PRODUCTION
+  COMPLETED
+}
+
+enum CompensationType {
+  PAID
+  DEFERRED
+  CREDIT_COPY
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum ReportTargetType {
+  USER
+  PROJECT
+  REVIEW
+  FEED_POST
+  PRODUCTION_REQUEST
+  FEED_COMMENT
+  MESSAGE
+  WORKSPACE_MESSAGE
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+// Distinguishes a human-filed report from one the automated slur scan
+// created on its own — AUTO_SLUR reports have no reporterId.
+enum ReportSource {
+  USER
+  AUTO_SLUR
+}
+
+enum ConversationStatus {
+  PENDING_REQUEST
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum CatalogStatus {
+  NOT_SUBMITTED
+  PENDING
+  PUBLISHED
+  REJECTED
+}
+
+// ---------------------------------------------------------------------------
+// User & Portfolio
+// ---------------------------------------------------------------------------
+
+model User {
+  id                    String                                 @id @default(cuid())
+  email                 String                                 @unique
+  // Optional: OAuth-only accounts (Google/Apple) never set a password.
+  passwordHash          String?
+  // Identifies which provider created/linked this account, and that
+  // provider's stable subject id for the user — together these let a
+  // repeat OAuth sign-in find the same row without relying on email
+  // (Apple only returns email on the very first authorization).
+  oauthProvider         String?
+  oauthId               String?
+  name                  String
+  username              String                                 @unique
+  tagline               String?
+  bio                   String?
+  avatarUrl             String?
+  coverImageUrl         String?
+  city                  String?
+  state                 String?
+  latitude              Float?
+  longitude             Float?
+  geog                  Unsupported("geography(Point, 4326)")?
+  primaryRoles          FilmRole[]
+  experienceLevel       ExperienceLevel                        @default(INDIE)
+  directorDpExperience  String?
+  // Free-text quick status shown as a chip on the Connections tab and
+  // profile — "Available for Hire", "On Set until Oct" — user-set, not
+  // computed, since availability like this doesn't follow a fixed shape.
+  availabilityStatus    String?
+  technicalSkills       String[]
+  accolades             String[]
+  isModerator           Boolean                                @default(false)
+  emailVerifiedAt       DateTime?
+  // Simulated billing — no payment processor wired in yet. Subscribing sets
+  // this directly rather than going through a webhook-driven state machine;
+  // swap for the real thing (Stripe subscription status, etc.) once a
+  // processor is configured, without changing how the rest of the app reads
+  // entitlement (still just "is this user GOLD").
+  subscriptionTier      SubscriptionTier                       @default(FREE)
+  subscriptionUpdatedAt DateTime?
+  createdAt             DateTime                               @default(now())
+  updatedAt             DateTime                               @updatedAt
+
+  portfolioLinks           PortfolioLink[]
+  credits                  Credit[]
+  ownedProjects            Project[]                @relation("ProjectOwner")
+  catalogReviews           Project[]                @relation("CatalogReviewer")
+  postedRequests           ProductionRequest[]      @relation("RequestPoster")
+  connectionsInitiated     Connection[]             @relation("ConnectionRequester")
+  connectionsReceived      Connection[]             @relation("ConnectionReceiver")
+  festivalAttendances      FestivalAttendee[]
+  verifiedCredits          Credit[]                 @relation("CreditVerifier")
+  reviews                  Review[]
+  feedApplauses            FeedApplause[]
+  crewCallApplications     CrewCallApplication[]
+  feedComments             FeedComment[]
+  feedPosts                FeedPost[]
+  conversationsAsA         Conversation[]           @relation("ConversationUserA")
+  conversationsAsB         Conversation[]           @relation("ConversationUserB")
+  sentMessages             Message[]
+  blocksInitiated          Block[]                  @relation("Blocker")
+  blocksReceived           Block[]                  @relation("Blocked")
+  workspaceMemberships     WorkspaceMember[]
+  channelMessages          ChannelMessage[]
+  boardNodesCreated        BoardNode[]
+  reportsFiled             Report[]                 @relation("ReportsFiled")
+  reportsResolved          Report[]                 @relation("ReportsResolved")
+  passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
+  pushTokens               PushToken[]
+  pollsAuthored            Poll[]
+  pollVotes                PollVote[]
+  profileViewsMade         ProfileView[]            @relation("ProfileViewer")
+  profileViewsReceived     ProfileView[]            @relation("ProfileViewed")
+  workspaceInvitesSent     WorkspaceInvite[]        @relation("WorkspaceInviteSender")
+  workspaceInvitesReceived WorkspaceInvite[]        @relation("WorkspaceInviteRecipient")
+
+  @@unique([oauthProvider, oauthId])
+  @@index([latitude, longitude])
+}
+
+// Powers a lightweight "who viewed your profile" surface on the Connections
+// tab. Deduped at the application layer (skip logging a repeat view within
+// the same hour) rather than a DB constraint, so casual re-navigation
+// doesn't need a delete-then-insert dance.
+model ProfileView {
+  id        String   @id @default(cuid())
+  viewerId  String
+  viewer    User     @relation("ProfileViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+  viewedId  String
+  viewed    User     @relation("ProfileViewed", fields: [viewedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([viewedId, createdAt])
+  @@index([viewerId])
+}
+
+model PortfolioLink {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  url       String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Filmography: Project & Credit
+// ---------------------------------------------------------------------------
+
+model Project {
+  id              String                                 @id @default(cuid())
+  title           String
+  genre           String?
+  status          ProjectStatus                          @default(PRE_PRODUCTION)
+  releaseYear     Int?
+  logline         String?
+  // A "how we made this" writeup the owner/crew can publish so other
+  // aspiring filmmakers browsing the catalog can learn from the approach —
+  // plain text (same convention as logline/rejectionNote) rather than a
+  // separate model, since it's a single owner-edited field, not a thread.
+  productionGuide String?
+  city            String?
+  state           String?
+  latitude        Float?
+  longitude       Float?
+  geog            Unsupported("geography(Point, 4326)")?
+  ownerId         String
+  owner           User                                   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                               @default(now())
+  updatedAt       DateTime                               @updatedAt
+
+  // Indie Catalog submission pipeline — separate from the project itself,
+  // so creating a project for crew calls / filmography never forces a
+  // review gate. NOT_SUBMITTED is a normal, private project.
+  posterUrl     String?
+  catalogStatus CatalogStatus @default(NOT_SUBMITTED)
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  reviewedById  String?
+  reviewedBy    User?         @relation("CatalogReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  rejectionNote String?
+
+  credits            Credit[]
+  productionRequests ProductionRequest[]
+  festivalFilms      FestivalFilm[]
+  reviews            Review[]
+  feedPosts          FeedPost[]
+  workspaces         Workspace[]
+  links              ProjectLink[]
+
+  @@index([latitude, longitude])
+  @@index([status])
+  @@index([catalogStatus])
+}
+
+model ProjectLink {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label        String
+  url          String
+  urlReachable Boolean?
+  createdAt    DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model Credit {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role         FilmRole
+  isVerified   Boolean   @default(false)
+  verifiedById String?
+  verifiedBy   User?     @relation("CreditVerifier", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, projectId, role])
+  @@index([projectId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Letterboxd-style Reviews (rating in half-star units: 1 = 0.5★ … 10 = 5.0★)
+// ---------------------------------------------------------------------------
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rating    Int
+  body      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Professional Graph: Connection
+// ---------------------------------------------------------------------------
+
+model Connection {
+  id          String           @id @default(cuid())
+  requesterId String
+  requester   User             @relation("ConnectionRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User             @relation("ConnectionReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  status      ConnectionStatus @default(PENDING)
+  note        String?
+  festivalId  String?
+  festival    Festival?        @relation(fields: [festivalId], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([requesterId, receiverId])
+  @@index([requesterId])
+  @@index([receiverId])
+}
+
+// ---------------------------------------------------------------------------
+// Production Assistance Post
+// ---------------------------------------------------------------------------
+
+model ProductionRequest {
+  id               String                                 @id @default(cuid())
+  title            String
+  projectId        String
+  project          Project                                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  postedById       String
+  postedBy         User                                   @relation("RequestPoster", fields: [postedById], references: [id], onDelete: Cascade)
+  roleNeeded       FilmRole
+  description      String?
+  city             String?
+  state            String?
+  latitude         Float?
+  longitude        Float?
+  geog             Unsupported("geography(Point, 4326)")?
+  startDate        DateTime?
+  endDate          DateTime?
+  compensationType CompensationType                       @default(CREDIT_COPY)
+  isFilled         Boolean                                @default(false)
+  createdAt        DateTime                               @default(now())
+  updatedAt        DateTime                               @updatedAt
+
+  applications CrewCallApplication[]
+
+  @@index([latitude, longitude])
+  @@index([roleNeeded])
+  @@index([isFilled])
+}
+
+model CrewCallApplication {
+  id                  String            @id @default(cuid())
+  productionRequestId String
+  productionRequest   ProductionRequest @relation(fields: [productionRequestId], references: [id], onDelete: Cascade)
+  applicantId         String
+  applicant           User              @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  message             String?
+  createdAt           DateTime          @default(now())
+
+  @@unique([productionRequestId, applicantId])
+  @@index([productionRequestId])
+}
+
+// ---------------------------------------------------------------------------
+// Festival
+// ---------------------------------------------------------------------------
+
+model Festival {
+  id          String                                 @id @default(cuid())
+  name        String
+  posterUrl   String?
+  city        String?
+  state       String?
+  latitude    Float?
+  longitude   Float?
+  geog        Unsupported("geography(Point, 4326)")?
+  startDate   DateTime
+  endDate     DateTime
+  description String?
+  createdAt   DateTime                               @default(now())
+  updatedAt   DateTime                               @updatedAt
+
+  submissionUrl      String?
+  submissionDeadline DateTime?
+  urlLastCheckedAt   DateTime?
+  urlReachable       Boolean?
+
+  featuredFilms FestivalFilm[]
+  attendees     FestivalAttendee[]
+  connections   Connection[]
+
+  @@index([latitude, longitude])
+  @@index([startDate])
+}
+
+model FestivalFilm {
+  id         String   @id @default(cuid())
+  festivalId String
+  festival   Festival @relation(fields: [festivalId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([festivalId, projectId])
+}
+
+model FestivalAttendee {
+  id         String   @id @default(cuid())
+  festivalId String
+  festival   Festival @relation(fields: [festivalId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([festivalId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Feed engagement (Applaud). Feed items are assembled from several source
+// tables (ProductionRequest, Connection, Credit, and future Post-like
+// models) rather than one unified table, so this references items by
+// (itemType, itemId) instead of a single foreign key.
+// ---------------------------------------------------------------------------
+
+model FeedApplause {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemType  String
+  itemId    String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, itemType, itemId])
+  @@index([itemType, itemId])
+}
+
+model FeedComment {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemType  String
+  itemId    String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([itemType, itemId])
+}
+
+// ---------------------------------------------------------------------------
+// User-authored feed posts: wrap announcements, poster reveals, production
+// launches, award wins, and project launches (trailers/teasers). One table
+// serves both NetworkFeedItem "announcement" and "project_launch" types —
+// `kind` distinguishes them, and the launch-specific fields are unused for
+// plain announcements.
+// ---------------------------------------------------------------------------
+
+model FeedPost {
+  id                     String   @id @default(cuid())
+  authorId               String
+  author                 User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  projectId              String?
+  project                Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  kind                   String
+  headline               String
+  body                   String?
+  posterUrl              String?
+  videoUrl               String?
+  logline                String?
+  seekingFeedback        Boolean  @default(false)
+  seekingFestivalPartner Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Messaging: 1-on-1 DM with a Message Request Sandbox for cold outreach.
+// userAId/userBId store the pair in canonical (lexicographically sorted) order
+// so @@unique enforces one conversation per pair regardless of who initiated.
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id          String             @id @default(cuid())
+  userAId     String
+  userA       User               @relation("ConversationUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId     String
+  userB       User               @relation("ConversationUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  status      ConversationStatus @default(PENDING_REQUEST)
+  initiatorId String
+  requestNote String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  messages Message[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId, status])
+  @@index([userBId, status])
+}
+
+enum MessageKind {
+  TEXT
+  IMAGE
+  STICKER
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  kind           MessageKind  @default(TEXT)
+  body           String
+  imageUrl       String?
+  createdAt      DateTime     @default(now())
+  readAt         DateTime?
+  deletedAt      DateTime?
+
+  @@index([conversationId, createdAt])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: studio group workspaces (Microsoft Teams-style department
+// channels). One workspace per project, membership derived from verified
+// Credits — no separate invite flow. Owner creates it; members sync lazily
+// from whoever currently holds a verified credit on the project.
+// ---------------------------------------------------------------------------
+
+model Workspace {
+  id        String   @id @default(cuid())
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  name      String
+  createdAt DateTime @default(now())
+
+  channels Channel[]
+  members  WorkspaceMember[]
+  invites  WorkspaceInvite[]
+  board    Board?
+}
+
+enum WorkspaceInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+// One member's invite to another filmmaker — role is optional context that,
+// on acceptance, both sets WorkspaceMember.department (via ROLE_DEPARTMENT)
+// and ensures that department channel exists, same as the auto-created
+// channels when a workspace is first spun up from a project's crew.
+model WorkspaceInvite {
+  id          String                @id @default(cuid())
+  workspaceId String
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviterId   String
+  inviter     User                  @relation("WorkspaceInviteSender", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId   String
+  invitee     User                  @relation("WorkspaceInviteRecipient", fields: [inviteeId], references: [id], onDelete: Cascade)
+  role        FilmRole?
+  status      WorkspaceInviteStatus @default(PENDING)
+  createdAt   DateTime              @default(now())
+  respondedAt DateTime?
+
+  @@index([workspaceId, status])
+  @@index([inviteeId, status])
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department  String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Workspace Board: a Milanote-style freeform canvas, one per workspace,
+// lazily created on first visit (same pattern as Workspace itself being
+// lazily created from a Project). Nodes carry their own x/y/width/height in
+// canvas units — panning/zooming is purely a client-side viewport transform,
+// never touches these values, so positions stay stable across zoom levels.
+// ---------------------------------------------------------------------------
+
+model Board {
+  id          String      @id @default(cuid())
+  workspaceId String      @unique
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime    @default(now())
+  nodes       BoardNode[]
+}
+
+model BoardNode {
+  id          String   @id @default(cuid())
+  boardId     String
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  x           Float
+  y           Float
+  width       Float    @default(220)
+  height      Float    @default(160)
+  color       String   @default("#FDF7E4")
+  text        String   @default("")
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([boardId])
+}
+
+model Channel {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  createdAt   DateTime  @default(now())
+
+  messages ChannelMessage[]
+
+  @@index([workspaceId])
+}
+
+model ChannelMessage {
+  id        String   @id @default(cuid())
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body      String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([channelId, createdAt])
+  @@index([pinned])
+}
+
+// A pinned ChannelMessage surfaces in the pinner's connections' Home feed as
+// a "workspace update" card — Poll is a separate, lightweight community
+// module (not tied to a project) that surfaces the same way.
+model Poll {
+  id        String   @id @default(cuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  question  String
+  closesAt  DateTime
+  createdAt DateTime @default(now())
+
+  options PollOption[]
+  votes   PollVote[]
+
+  @@index([closesAt])
+}
+
+model PollOption {
+  id     String @id @default(cuid())
+  pollId String
+  poll   Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  label  String
+  order  Int    @default(0)
+
+  votes PollVote[]
+
+  @@index([pollId])
+}
+
+model PollVote {
+  id        String     @id @default(cuid())
+  pollId    String
+  poll      Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionId  String
+  option    PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([pollId, userId])
+  @@index([optionId])
+}
+
+// ---------------------------------------------------------------------------
+// Trust & safety, account recovery, notifications
+// ---------------------------------------------------------------------------
+
+model Report {
+  id           String           @id @default(cuid())
+  // Nullable: automated slur-scan flags (source = AUTO_SLUR) have no human reporter.
+  reporterId   String?
+  reporter     User?            @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  source       ReportSource     @default(USER)
+  targetType   ReportTargetType
+  targetId     String
+  reason       String
+  note         String?
+  status       ReportStatus     @default(PENDING)
+  resolvedById String?
+  resolvedBy   User?            @relation("ReportsResolved", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt   DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([status])
+  @@index([targetType, targetId])
+}
+
+// Raw tokens are never stored — only a sha256 hash, so a DB read alone can't
+// be used to reset someone's password or forge email verification.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
