@@ -368,7 +368,82 @@ async function main() {
     ],
   });
 
-  console.log(`Seeded ${userDefs.length} users, 7 projects, 6 crew requests, 4 festivals.`);
+  await prisma.feedPost.createMany({
+    data: [
+      {
+        authorId: users.maya.id,
+        projectId: midnightStatic.id,
+        kind: "production_launch",
+        headline: "Midnight Static is officially rolling",
+        body: "First night of principal photography down. The radio station set came together better than we hoped — huge thanks to the crew for the late call time.",
+      },
+      {
+        authorId: users.theo.id,
+        projectId: paperSkies.id,
+        kind: "poster_reveal",
+        headline: "First look at the Paper Skies poster",
+        body: "Nia and I have been sitting on this one for weeks. Pre-production kicks into high gear next month.",
+        seekingFeedback: true,
+      },
+      {
+        authorId: users.ethan.id,
+        projectId: concreteGarden.id,
+        kind: "wrap",
+        headline: "Concrete Garden has wrapped",
+        body: "That's a wrap on principal photography. Into the color suite with Ravi next — can't wait to show you what we shot.",
+      },
+      {
+        authorId: users.lena.id,
+        projectId: harborLines.id,
+        kind: "production_launch",
+        headline: "Harbor Lines cameras are rolling",
+        body: "Spent the morning on the docks with our first family. This story deserves to be told right.",
+      },
+      {
+        authorId: users.marcus.id,
+        projectId: theLongWire.id,
+        kind: "award",
+        headline: "The Long Wire took Best Drama at NYC Winter Shorts",
+        body: "Still processing this one. Grateful to everyone who believed in a script about a telecom lineman.",
+      },
+      {
+        authorId: users.isabella.id,
+        projectId: riverside.id,
+        kind: "production_launch",
+        headline: "Riverside begins filming on the water",
+        body: "Boxing choreography rehearsals paid off — day one on the riverbank went smoother than expected.",
+      },
+      {
+        authorId: users.cole.id,
+        projectId: staticBloom.id,
+        kind: "project_launch",
+        headline: "Announcing Static Bloom",
+        body: "A sci-fi short about a botanist who finds a signal hidden in plant growth patterns. Assembling the crew now — see the open calls below.",
+        seekingFestivalPartner: true,
+      },
+      {
+        authorId: users.priya.id,
+        kind: "wrap",
+        headline: "Wrapped the Midnight Static assembly cut",
+        body: "First pass is in. Trimming 12 minutes out of the radio station sequence alone.",
+      },
+      {
+        authorId: users.harper.id,
+        kind: "poster_reveal",
+        headline: "Early VFX tests for Static Bloom",
+        body: "Playing with signal-visualization looks for the plant growth sequences. More soon.",
+        seekingFeedback: true,
+      },
+      {
+        authorId: users.yuki.id,
+        kind: "production_launch",
+        headline: "Back on set for Riverside",
+        body: "Second week of 1st AC duties on the riverbank — the light this time of year is unbeatable.",
+      },
+    ],
+  });
+
+  console.log(`Seeded ${userDefs.length} users, 7 projects, 6 crew requests, 4 festivals, 10 feed posts.`);
 }
 
 main()
