@@ -604,7 +604,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     backgroundColor: Colors[colorScheme].card,
     borderRadius: Radius.xl,
     marginHorizontal: Space.lg,
-    marginBottom: Space.sm,
+    marginBottom: Space.lg,
     overflow: 'hidden',
   },
   // One step up the elevation ramp — reserved for cards that should read as
@@ -614,7 +614,7 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     backgroundColor: Colors[colorScheme].surface2,
     borderRadius: Radius.xl,
     marginHorizontal: Space.lg,
-    marginBottom: Space.sm,
+    marginBottom: Space.lg,
     overflow: 'hidden',
   },
   cardBleed: {

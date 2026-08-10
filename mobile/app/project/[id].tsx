@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
@@ -23,6 +24,7 @@ import {
   resolveAvatarUrl,
   submitReview,
   updateProjectGuide,
+  uploadProjectPoster,
   type FilmReview,
   type ProjectDetail,
 } from '@/lib/api';
@@ -60,6 +62,7 @@ export default function ProjectDetailScreen() {
   const [editingGuide, setEditingGuide] = useState(false);
   const [guideDraft, setGuideDraft] = useState('');
   const [savingGuide, setSavingGuide] = useState(false);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +124,39 @@ export default function ProjectDetailScreen() {
       setError("Couldn't save your guide.");
     } finally {
       setSavingGuide(false);
+    }
+  }
+
+  async function handleChangePoster() {
+    if (!project) return;
+    setError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError("Couldn't access your photos. Check your permissions.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+      allowsEditing: true,
+      aspect: [2, 3],
+    });
+    if (result.canceled || result.assets.length === 0) return;
+
+    const asset = result.assets[0];
+    setUploadingPoster(true);
+    try {
+      const { posterUrl } = await uploadProjectPoster(project.id, {
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+        file: asset.file,
+      });
+      setProject((prev) => (prev ? { ...prev, posterUrl } : prev));
+    } catch {
+      setError("Couldn't upload that poster. Try a different photo.");
+    } finally {
+      setUploadingPoster(false);
     }
   }
 
@@ -195,15 +231,34 @@ export default function ProjectDetailScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          {project.posterUrl ? (
-            <Image source={{ uri: resolveAvatarUrl(project.posterUrl) ?? undefined }} style={styles.posterImage} />
-          ) : (
-            <View style={[styles.poster, { backgroundColor: swatchFor(project.id) }]}>
-              <Text style={styles.posterTitle} numberOfLines={4}>
-                {project.title}
-              </Text>
-            </View>
-          )}
+          <View style={styles.posterWrap}>
+            {project.posterUrl ? (
+              <Image source={{ uri: resolveAvatarUrl(project.posterUrl) ?? undefined }} style={styles.posterImage} />
+            ) : (
+              <View style={[styles.poster, { backgroundColor: swatchFor(project.id) }]}>
+                <Text style={styles.posterTitle} numberOfLines={4}>
+                  {project.title}
+                </Text>
+              </View>
+            )}
+
+            {isOwner ? (
+              <AnimatedPressable
+                style={styles.posterEditButton}
+                haptic="light"
+                onPress={handleChangePoster}
+                disabled={uploadingPoster}
+              >
+                {uploadingPoster ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.posterEditButtonText}>
+                    {project.posterUrl ? 'Change Poster' : '+ Add Poster'}
+                  </Text>
+                )}
+              </AnimatedPressable>
+            ) : null}
+          </View>
 
           <View style={styles.statusRow}>
             <View style={styles.statusChip}>
@@ -570,6 +625,10 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     padding: Space.lg,
     gap: Space.md,
   },
+  posterWrap: {
+    width: '100%',
+    position: 'relative',
+  },
   poster: {
     width: '100%',
     aspectRatio: 16 / 9,
@@ -587,6 +646,23 @@ const createStyles = (colorScheme: 'light' | 'dark') =>
     color: 'rgba(255,255,255,0.92)',
     fontSize: 22,
     fontWeight: '800',
+  },
+  posterEditButton: {
+    position: 'absolute',
+    right: Space.md,
+    bottom: Space.md,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: Radius.pill,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm - 1,
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  posterEditButtonText: {
+    color: '#fff',
+    ...Type.small,
+    fontWeight: '700',
   },
   statusRow: {
     flexDirection: 'row',
