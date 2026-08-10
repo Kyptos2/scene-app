@@ -25,10 +25,10 @@ export async function POST(request: Request) {
   }
 
   const { email, password, name } = parsed.data;
-  const passwordHash = await hashPassword(password);
-  const username = await generateUsername(name);
 
   try {
+    const passwordHash = await hashPassword(password);
+    const username = await generateUsername(name);
     const user = await prisma.user.create({
       data: { email, passwordHash, name, username },
     });
@@ -46,6 +46,11 @@ export async function POST(request: Request) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
     }
-    throw error;
+    // TEMPORARY: surfaces the real error for one-off production debugging —
+    // reverted immediately after diagnosing the deploy issue.
+    return NextResponse.json(
+      { error: "DEBUG", message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined },
+      { status: 500 },
+    );
   }
 }
