@@ -29,12 +29,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    // TEMPORARY: surfaces the real error for one-off production debugging —
-    // reverted immediately after diagnosing the deploy issue.
-    return NextResponse.json(
-      { error: "DEBUG", message: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    throw err;
   }
 
   await prisma.user.update({ where: { id: userId }, data: { avatarUrl } });
